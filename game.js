@@ -77,7 +77,7 @@
     paused: false,
     storeOpen: false,
     player: { x: 150, y: 150, angle: 0 },
-    car: { x: 205, y: 150, angle: 0, speed: 0, stop: 0 },
+    car: { x: 205, y: 150, angle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 },
     inCar: false,
     vehicleIndex: vehicles.findIndex((vehicle) => vehicle.id === saved.vehicle) < 0 ? 0 : vehicles.findIndex((vehicle) => vehicle.id === saved.vehicle),
     owned: new Set(Array.isArray(saved.owned) ? saved.owned : ["sedan"]),
@@ -260,7 +260,7 @@
       return {
         x: state.sidewalkNodes[start].x, y: state.sidewalkNodes[start].y,
         path, target: path[0] || state.sidewalkNodes[start],
-        speed: 34 + random() * 12, wait: Math.floor(random() * 40),
+        speed: 34 + random() * 12, wait: random() * 1.2,
         color: ["#e4aaa0", "#b6c5a3", "#a7b4cf", "#d8c3a1"][Math.floor(random() * 4)],
       };
     });
@@ -713,17 +713,50 @@
     const vehicle = vehicles[state.vehicleIndex];
     const acceleration = (state.keys.has("w") ? 1 : 0) - (state.keys.has("s") ? 1 : 0);
     const turn = (state.keys.has("d") ? 1 : 0) - (state.keys.has("a") ? 1 : 0);
-    state.car.angle += turn * .95 * Math.min(1, Math.abs(state.car.speed) / 85) * (state.car.speed >= 0 ? 1 : -1) * dt;
+    const car = state.car;
+    car.crashTimer = Math.max(0, car.crashTimer - dt);
+    car.crashCooldown = Math.max(0, car.crashCooldown - dt);
+    car.crashSpin *= Math.exp(-dt * 3.2);
+    const steeringControl = car.crashTimer > 0 ? .28 : 1;
+    car.angle += turn * .95 * steeringControl * Math.min(1, Math.abs(car.speed) / 85) * (car.speed >= 0 ? 1 : -1) * dt;
+    car.angle += car.crashSpin * dt;
     if (state.keys.has("shift")) state.car.speed *= Math.pow(.2, dt);
     else state.car.speed = clamp(state.car.speed + acceleration * vehicle.acceleration * dt, -vehicle.speed * .45, vehicle.speed);
     if (!acceleration || state.keys.has("shift")) state.car.speed *= Math.pow(.97, dt * 30);
     if (Math.abs(state.car.speed) < 3) state.car.speed = 0;
     const dx = Math.cos(state.car.angle) * state.car.speed * dt;
     const dy = Math.sin(state.car.angle) * state.car.speed * dt;
-    if (!isSolid(state.car.x + dx, state.car.y, 17)) state.car.x += dx;
-    else state.car.speed *= -.15;
-    if (!isSolid(state.car.x, state.car.y + dy, 17)) state.car.y += dy;
-    else state.car.speed *= -.15;
+    const hitX = isSolid(car.x + dx, car.y, 17);
+    const resolvedX = hitX ? car.x : car.x + dx;
+    const hitY = isSolid(resolvedX, car.y + dy, 17);
+    const impactSpeed = Math.abs(car.speed);
+    if (!hitX) car.x = resolvedX;
+    if (!hitY) car.y += dy;
+    if (hitX || hitY) {
+      const direction = car.speed < 0 ? -1 : 1;
+      let velocityX = Math.cos(car.angle) * car.speed;
+      let velocityY = Math.sin(car.angle) * car.speed;
+      if (hitX) velocityX *= -.28;
+      else velocityX *= .78;
+      if (hitY) velocityY *= -.28;
+      else velocityY *= .78;
+      car.speed = Math.hypot(velocityX, velocityY) * direction;
+      car.angle = Math.atan2(velocityY * direction, velocityX * direction);
+      if (impactSpeed > 45) {
+        car.crashTimer = .85;
+        if (hitX && hitY) car.crashSpin = (Math.sign(velocityX) || 1) * 1.7;
+        else if (hitX) car.crashSpin = (Math.sign(velocityY) || 1) * 2.1;
+        else car.crashSpin = -(Math.sign(velocityX) || 1) * 2.1;
+        if (car.crashCooldown === 0) {
+          toast("Batida! O carro perdeu velocidade e saiu de controle.");
+          beep(110, .16);
+          car.crashCooldown = .9;
+        }
+      } else if (car.crashCooldown === 0) {
+        toast("Você encostou em uma casa.");
+        car.crashCooldown = .45;
+      }
+    }
     for (const pedestrian of state.pedestrians) {
       if (distance(state.car, pedestrian) < 20 && state.car.speed !== 0) {
         state.car.stop = .7;
