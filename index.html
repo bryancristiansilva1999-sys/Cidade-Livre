@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="pt-BR">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <meta name="theme-color" content="#10191c">
+    <meta name="description" content="Jogue Bairro Livre direto no navegador.">
+    <title>Bairro Livre — Jogue no navegador</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="game.js" defer></script>
+  </head>
+  <body>
+    <header class="topbar">
+      <a class="back-link" href="../#projetos">← Portfólio</a>
+      <div class="brand"><span class="brand-mark">BL</span><span>BAIRRO <b>LIVRE</b></span></div>
+      <span class="browser-badge"><i></i> JOGÁVEL NO NAVEGADOR</span>
+    </header>
+
+    <main class="layout">
+      <section class="game-column" aria-label="Jogo Bairro Livre">
+        <div class="game-topline">
+          <div><span class="eyebrow">UMA CIDADE PARA EXPLORAR</span><h1>Seu bairro, suas histórias.</h1></div>
+          <button id="pauseButton" class="icon-button" type="button" aria-label="Pausar jogo">Ⅱ</button>
+        </div>
+        <div class="game-frame">
+          <canvas id="gameCanvas" aria-label="Jogo de cidade visto de cima"></canvas>
+          <div id="startScreen" class="screen">
+            <div class="start-card">
+              <span class="start-icon" aria-hidden="true">▦</span>
+              <p class="eyebrow">BAIRRO LIVRE · EDIÇÃO WEB</p>
+              <h2>A cidade está esperando.</h2>
+              <p>Entre no carro, faça serviços, conheça o bairro e encare dez corridas.</p>
+              <button id="startButton" class="primary-button" type="button">Começar a jogar <span>→</span></button>
+              <small>Seu progresso fica salvo neste navegador.</small>
+            </div>
+          </div>
+          <div id="storePanel" class="screen hidden" role="dialog" aria-modal="true" aria-labelledby="storeTitle">
+            <div class="store-card">
+              <button id="closeStore" class="close-button" type="button" aria-label="Fechar loja">×</button>
+              <p class="eyebrow">MERCADINHO DO BAIRRO</p>
+              <h2 id="storeTitle">Uma pausa gostosa.</h2>
+              <p>Escolha algo para levar na mochila.</p>
+              <div id="storeItems" class="store-items"></div>
+              <small>Esc para sair · F para comer depois</small>
+            </div>
+          </div>
+          <div id="pauseScreen" class="screen hidden">
+            <div class="start-card compact">
+              <p class="eyebrow">PAUSA</p><h2>Respira um pouco.</h2>
+              <p>Seu progresso está guardado.</p>
+              <button id="resumeButton" class="primary-button" type="button">Continuar <span>→</span></button>
+            </div>
+          </div>
+          <div id="toast" class="toast" aria-live="polite"></div>
+        </div>
+        <div class="controls-line">
+          <div><kbd>W</kbd><kbd>A</kbd><kbd>S</kbd><kbd>D</kbd><span>mover / dirigir</span></div>
+          <div><kbd>E</kbd><span>interagir</span></div>
+          <div><kbd>F</kbd><span>comer</span></div>
+          <div><kbd>G</kbd><span>trocar carro</span></div>
+          <div><kbd>B</kbd><span>comprar carro</span></div>
+          <div><kbd>Esc</kbd><span>pausar</span></div>
+        </div>
+        <div class="touch-controls" aria-label="Controles de toque">
+          <div class="dpad">
+            <button type="button" data-key="w" aria-label="Cima">▲</button>
+            <button type="button" data-key="a" aria-label="Esquerda">◀</button>
+            <button type="button" data-key="s" aria-label="Baixo">▼</button>
+            <button type="button" data-key="d" aria-label="Direita">▶</button>
+          </div>
+          <div class="touch-actions">
+            <button type="button" data-tap="interact">Interagir</button>
+            <button type="button" data-tap="eat">Comer</button>
+            <button type="button" data-tap="change">Trocar carro</button>
+            <button type="button" data-tap="buy">Comprar carro</button>
+          </div>
+        </div>
+      </section>
+
+      <aside class="side-panel" aria-label="Informações do jogo">
+        <div class="panel-card objective-card">
+          <span class="panel-label">AGORA</span>
+          <p id="objectiveType" class="objective-type">PRIMEIRA MISSÃO</p>
+          <h2 id="objectiveName">Entre no carro</h2>
+          <p id="objectiveHint" class="muted">Chegue perto do carro amarelo e pressione E.</p>
+          <div class="progress-track"><span id="progressFill"></span></div>
+          <div class="progress-caption"><span id="activityCount">0 / 25 atividades</span><span id="rewardText">+ $0</span></div>
+        </div>
+
+        <div class="money-card">
+          <div><span class="panel-label">SEU DINHEIRO</span><strong id="cashValue">$0</strong></div>
+          <span class="money-icon" aria-hidden="true">$</span>
+        </div>
+
+        <div class="panel-card">
+          <div class="panel-heading"><span class="panel-label">NA MOCHILA</span><span class="micro-hint">toque/1–3 · F come</span></div>
+          <div id="inventory" class="inventory"></div>
+        </div>
+
+        <div class="panel-card race-card">
+          <div class="panel-heading"><span class="panel-label">CORRIDAS</span><span id="bestTime" class="best-time">recorde --</span></div>
+          <p id="raceStatus" class="muted">Dez circuitos diferentes estão pela cidade.</p>
+          <div class="race-dots" id="raceDots" aria-label="Progresso nas corridas"></div>
+        </div>
+
+        <div class="panel-card garage-card">
+          <div class="panel-heading"><span class="panel-label">GARAGEM</span><span id="vehicleName" class="vehicle-name">Sedã</span></div>
+          <p id="garageHint" class="muted">G troca · B compra quando estiver junto ao carro estacionado.</p>
+        </div>
+
+        <div class="save-note"><span class="save-dot"></span> Salvamento automático neste navegador</div>
+      </aside>
+    </main>
+    <footer>BAIRRO LIVRE <span>·</span> Feito com curiosidade e código.</footer>
+  </body>
+</html>

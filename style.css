@@ -1,0 +1,196 @@
+:root {
+  color-scheme: dark;
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+  background: #10191c;
+  color: #f0eee5;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --panel: #182326;
+  --line: #334448;
+  --muted: #aab8b2;
+  --gold: #e6ce84;
+  --mint: #a6dbb1;
+}
+
+* { box-sizing: border-box; }
+body {
+  min-width: 320px;
+  margin: 0;
+  background:
+    radial-gradient(ellipse at 10% -20%, rgb(99 131 113 / 20%), transparent 45rem),
+    #10191c;
+}
+button, a { font: inherit; }
+button { color: inherit; }
+.topbar {
+  height: 68px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 max(22px, calc((100vw - 1320px) / 2));
+  border-bottom: 1px solid rgb(255 255 255 / 8%);
+  background: rgb(16 25 28 / 88%);
+}
+.back-link { color: var(--muted); text-decoration: none; font-size: 13px; }
+.back-link:hover { color: var(--gold); }
+.brand { display: flex; align-items: center; gap: 10px; font-size: 13px; font-weight: 800; letter-spacing: .1em; }
+.brand b { color: var(--gold); }
+.brand-mark {
+  display: grid; width: 34px; height: 34px; place-items: center;
+  border: 1px solid #60766c; border-radius: 10px; color: var(--gold);
+  background: #24342e; font-size: 11px; letter-spacing: 0;
+}
+.browser-badge { display: flex; align-items: center; gap: 8px; color: var(--mint); font-size: 10px; font-weight: 800; letter-spacing: .1em; }
+.browser-badge i, .save-dot { width: 7px; height: 7px; border-radius: 50%; background: #9cd59f; box-shadow: 0 0 12px #9cd59f; }
+.layout {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 300px;
+  gap: 22px;
+  width: min(1320px, calc(100% - 40px));
+  margin: 30px auto;
+  align-items: start;
+}
+.game-column { min-width: 0; }
+.game-topline { display: flex; align-items: center; justify-content: space-between; margin: 0 0 16px; }
+.eyebrow, .panel-label { color: #91b8a7; font-size: 9px; font-weight: 800; letter-spacing: .15em; }
+.game-topline h1 { margin: 5px 0 0; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.04em; }
+.icon-button, .close-button {
+  display: grid; place-items: center; width: 38px; height: 38px; cursor: pointer;
+  border: 1px solid var(--line); border-radius: 11px; color: var(--gold); background: var(--panel);
+}
+.game-frame {
+  position: relative;
+  overflow: hidden;
+  aspect-ratio: 16 / 10;
+  min-height: 360px;
+  border: 1px solid #53655d;
+  border-radius: 16px;
+  background: #698265;
+  box-shadow: 0 22px 70px rgb(0 0 0 / 27%);
+}
+canvas { display: block; width: 100%; height: 100%; }
+.screen {
+  position: absolute; inset: 0; z-index: 2; display: grid; place-items: center;
+  padding: 20px; background: rgb(12 19 21 / 69%); backdrop-filter: blur(5px);
+}
+.hidden { display: none !important; }
+.start-card, .store-card {
+  position: relative; width: min(410px, 100%); padding: 30px;
+  border: 1px solid #596c61; border-radius: 18px;
+  background: rgb(24 35 38 / 96%); box-shadow: 0 20px 60px rgb(0 0 0 / 38%);
+}
+.start-card { text-align: center; }
+.start-card h2, .store-card h2 { margin: 11px 0 9px; font-size: clamp(23px, 4vw, 31px); letter-spacing: -.045em; }
+.start-card p:not(.eyebrow), .store-card > p:not(.eyebrow) { color: var(--muted); line-height: 1.6; font-size: 13px; }
+.start-icon { display: inline-grid; width: 46px; height: 46px; place-items: center; margin-bottom: 12px; border: 1px solid #5e7869; border-radius: 14px; color: var(--gold); background: #2c4035; font-size: 23px; }
+.primary-button {
+  display: inline-flex; justify-content: center; align-items: center; gap: 20px;
+  min-height: 46px; margin: 12px 0; padding: 0 20px; cursor: pointer;
+  border: 1px solid #eadb9e; border-radius: 11px; color: #25302d; background: var(--gold);
+  font-weight: 800; transition: transform .15s ease, background .15s ease;
+}
+.primary-button:hover { transform: translateY(-2px); background: #f0dfa0; }
+.start-card small, .store-card small { display: block; margin-top: 8px; color: #8fa09a; font-size: 10px; }
+.compact { width: min(360px, 100%); }
+.store-card { width: min(480px, 100%); }
+.close-button { position: absolute; top: 15px; right: 15px; font-size: 24px; }
+.store-items { display: grid; gap: 9px; margin: 20px 0; }
+.store-item {
+  display: flex; align-items: center; justify-content: space-between; gap: 12px;
+  width: 100%; padding: 12px; cursor: pointer; text-align: left;
+  border: 1px solid var(--line); border-radius: 11px; background: #202e30;
+}
+.store-item:hover { border-color: #a9c1a5; }
+.store-item strong { display: block; font-size: 13px; }
+.store-item small { display: block; margin: 4px 0 0; color: var(--muted); }
+.store-item span:last-child { color: var(--gold); font-weight: 800; }
+.toast {
+  position: absolute; z-index: 3; left: 50%; bottom: 18px; max-width: calc(100% - 28px);
+  padding: 10px 16px; transform: translate(-50%, 12px); opacity: 0; pointer-events: none;
+  border: 1px solid #6f8275; border-radius: 10px; color: #fff9e8;
+  background: rgb(26 40 42 / 94%); font-size: 12px; text-align: center;
+  transition: opacity .2s ease, transform .2s ease;
+}
+.toast.visible { transform: translate(-50%, 0); opacity: 1; }
+.controls-line { display: flex; flex-wrap: wrap; gap: 10px 20px; margin: 13px 2px 0; color: var(--muted); font-size: 10px; }
+.controls-line div { display: flex; align-items: center; gap: 4px; }
+kbd {
+  display: inline-grid; min-width: 20px; height: 21px; place-items: center;
+  padding: 0 5px; border: 1px solid #475951; border-radius: 5px;
+  color: #e7e5d8; background: #1b2828; font: 700 10px "Segoe UI", sans-serif;
+}
+.touch-controls { display: none; justify-content: space-between; align-items: center; margin-top: 14px; }
+.dpad { display: grid; grid-template-columns: repeat(3, 40px); grid-template-rows: repeat(2, 38px); gap: 4px; }
+.dpad button, .touch-actions button {
+  border: 1px solid #52675d; border-radius: 9px; color: #f0e7c7; background: #233331;
+  touch-action: none;
+}
+.dpad button:nth-child(1) { grid-column: 2; }
+.dpad button:nth-child(2) { grid-column: 1; grid-row: 2; }
+.dpad button:nth-child(3) { grid-column: 2; grid-row: 2; }
+.dpad button:nth-child(4) { grid-column: 3; grid-row: 2; }
+.touch-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 190px; }
+.touch-actions button { min-height: 40px; padding: 0 13px; }
+.side-panel { display: grid; gap: 12px; padding-top: 63px; }
+.panel-card, .money-card {
+  padding: 17px; border: 1px solid #2e4042; border-radius: 14px; background: rgb(24 35 38 / 91%);
+}
+.objective-card { min-height: 188px; }
+.objective-type { margin: 12px 0 6px; color: var(--gold); font-size: 9px; font-weight: 800; letter-spacing: .1em; }
+.objective-card h2 { margin: 0 0 7px; font-size: 19px; letter-spacing: -.04em; }
+.muted { margin: 0; color: var(--muted); font-size: 11px; line-height: 1.5; }
+.progress-track { overflow: hidden; height: 5px; margin: 17px 0 8px; border-radius: 9px; background: #344448; }
+.progress-track span { display: block; width: 0; height: 100%; border-radius: inherit; background: var(--mint); transition: width .25s ease; }
+.progress-caption, .panel-heading { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+.progress-caption { color: #a9b8ae; font-size: 9px; }
+.money-card { display: flex; align-items: center; justify-content: space-between; }
+.money-card strong { display: block; margin-top: 5px; color: var(--gold); font-size: 25px; letter-spacing: -.05em; }
+.money-icon { display: grid; width: 39px; height: 39px; place-items: center; border: 1px solid #796b3a; border-radius: 50%; color: var(--gold); background: #333325; font-size: 19px; }
+.micro-hint, .best-time { color: #91a29b; font-size: 9px; }
+.inventory { display: grid; gap: 6px; margin-top: 11px; }
+.food-row { display: flex; justify-content: space-between; width: 100%; padding: 0; cursor: pointer; border: 0; color: #bec9c2; background: transparent; font-size: 11px; text-align: left; }
+.food-row.selected { color: var(--gold); font-weight: 750; }
+.food-row .qty { color: #91a29b; }
+.race-card > p { margin-top: 10px; }
+.race-dots { display: flex; gap: 5px; margin-top: 13px; }
+.race-dots i { width: 14px; height: 5px; border-radius: 8px; background: #39494a; }
+.race-dots i.done { background: #a6dbb1; }
+.vehicle-name { color: #ecddad; font-size: 11px; font-weight: 750; }
+.garage-card > p { margin-top: 8px; }
+.save-note { display: flex; align-items: center; gap: 8px; padding: 6px 3px; color: #8fa09a; font-size: 10px; }
+footer { width: min(1320px, calc(100% - 40px)); margin: 0 auto 25px; color: #788a83; font-size: 10px; letter-spacing: .04em; }
+footer span { color: var(--gold); }
+
+@media (max-width: 900px) {
+  .layout { grid-template-columns: minmax(0, 1fr) 260px; gap: 14px; width: min(100% - 24px, 760px); margin-top: 20px; }
+  .side-panel { padding-top: 59px; }
+  .panel-card, .money-card { padding: 13px; }
+  .game-frame { min-height: 310px; }
+}
+@media (max-width: 680px) {
+  .topbar { height: 58px; padding: 0 14px; }
+  .brand { font-size: 11px; }
+  .browser-badge { font-size: 8px; letter-spacing: .06em; }
+  .layout { display: flex; flex-direction: column; width: calc(100% - 20px); gap: 12px; margin: 16px auto; }
+  .game-column, .side-panel { width: 100%; }
+  .game-topline { margin-bottom: 10px; }
+  .game-frame { aspect-ratio: 4 / 3; min-height: 270px; max-height: 62vh; border-radius: 12px; }
+  .controls-line { display: none; }
+  .touch-controls { display: flex; }
+  .side-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding-top: 0; }
+  .objective-card { grid-column: 1 / -1; min-height: auto; }
+  .money-card { min-height: 78px; }
+  .race-card { grid-column: 1 / -1; }
+  .save-note { grid-column: 1 / -1; }
+  footer { width: calc(100% - 20px); margin-bottom: 16px; }
+}
+@media (max-width: 390px) {
+  .back-link { font-size: 11px; }
+  .brand-mark { width: 29px; height: 29px; }
+  .browser-badge { max-width: 105px; text-align: right; }
+  .side-panel { grid-template-columns: 1fr; }
+  .objective-card, .race-card, .save-note { grid-column: auto; }
+  .start-card, .store-card { padding: 22px; }
+  .touch-actions { max-width: 145px; }
+  .touch-actions button { flex: 1 0 65px; padding: 0 4px; font-size: 9px; }
+}
