@@ -52,6 +52,8 @@ button { color: inherit; }
 }
 .game-column { min-width: 0; }
 .game-topline { display: flex; align-items: center; justify-content: space-between; margin: 0 0 16px; }
+.game-actions { display: flex; gap: 8px; }
+.fullscreen-button { display: none; }
 .eyebrow, .panel-label { color: #91b8a7; font-size: 9px; font-weight: 800; letter-spacing: .15em; }
 .game-topline h1 { margin: 5px 0 0; font-size: clamp(21px, 3vw, 30px); letter-spacing: -.04em; }
 .icon-button, .close-button {
@@ -177,6 +179,7 @@ footer span { color: var(--gold); }
   .game-frame { aspect-ratio: 4 / 3; min-height: 270px; max-height: 62vh; border-radius: 12px; }
   .controls-line { display: none; }
   .touch-controls { display: flex; }
+  .fullscreen-button { display: grid; }
   .side-panel { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 9px; padding-top: 0; }
   .objective-card { grid-column: 1 / -1; min-height: auto; }
   .money-card { min-height: 78px; }
@@ -194,3 +197,53 @@ footer span { color: var(--gold); }
   .touch-actions { max-width: 145px; }
   .touch-actions button { flex: 1 0 65px; padding: 0 4px; font-size: 9px; }
 }
+
+.game-column:fullscreen {
+  display: flex;
+  position: fixed;
+  inset: 0;
+  z-index: 10;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom) env(safe-area-inset-left);
+  background: #10191c;
+}
+.game-column:fullscreen .game-topline {
+  position: absolute;
+  z-index: 4;
+  inset: max(10px, env(safe-area-inset-top)) max(10px, env(safe-area-inset-right)) auto;
+  justify-content: flex-end;
+  margin: 0;
+  pointer-events: none;
+}
+.game-column:fullscreen .game-topline > div:first-child { display: none; }
+.game-column:fullscreen .game-actions { pointer-events: auto; }
+.game-column:fullscreen .game-frame {
+  flex: 1;
+  width: 100%;
+  min-height: 0;
+  max-height: none;
+  aspect-ratio: auto;
+  border: 0;
+  border-radius: 0;
+  box-shadow: none;
+}
+.game-column:fullscreen .fullscreen-button { display: grid; }
+.game-column:fullscreen .touch-controls { display: flex; }
+.game-column:fullscreen .touch-controls {
+  position: absolute;
+  z-index: 4;
+  inset: auto 0 0;
+  align-items: flex-end;
+  margin: 0;
+  padding: 0 max(14px, env(safe-area-inset-right)) max(14px, env(safe-area-inset-bottom)) max(14px, env(safe-area-inset-left));
+  pointer-events: none;
+}
+.game-column:fullscreen .dpad,
+.game-column:fullscreen .touch-actions { pointer-events: auto; }
+.game-column:fullscreen .dpad { grid-template-columns: repeat(3, 48px); grid-template-rows: repeat(2, 44px); gap: 5px; }
+.game-column:fullscreen .touch-actions { max-width: 240px; }
+.game-column:fullscreen .touch-actions button { min-height: 44px; background: rgb(35 51 49 / 88%); }
+.game-column:fullscreen .dpad button { background: rgb(35 51 49 / 88%); }
+.game-column:fullscreen .toast { bottom: max(16px, env(safe-area-inset-bottom)); }
