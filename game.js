@@ -152,7 +152,15 @@
   }
 
   function distance(a, b) {
-    return Math.hypot(a.x - b.x, a.y - b.y);
+    const first = coordinates(a);
+    const second = coordinates(b);
+    return Math.hypot(first.x - second.x, first.y - second.y);
+  }
+
+  function coordinates(position) {
+    return Array.isArray(position)
+      ? { x: position[0], y: position[1] }
+      : position;
   }
 
   function makeCourse(bounds) {
@@ -520,7 +528,8 @@
   }
 
   function drawMarker(position, label, color = "#f1db70") {
-    const p = point(position.x, position.y);
+    const coordinatesPosition = coordinates(position);
+    const p = point(coordinatesPosition.x, coordinatesPosition.y);
     if (p.x < -80 || p.x > state.width + 80 || p.y < -80 || p.y > state.height + 80) return;
     const pulse = 16 + Math.sin(performance.now() / 280) * 3;
     ctx.beginPath(); ctx.arc(p.x, p.y, pulse * state.zoom, 0, Math.PI * 2);
@@ -626,7 +635,13 @@
     for (const x of ROAD_X) { ctx.beginPath(); ctx.moveTo(mapX(x), top + 4); ctx.lineTo(mapX(x), top + height - 4); ctx.stroke(); }
     for (const y of ROAD_Y) { ctx.beginPath(); ctx.moveTo(left + 4, mapY(y)); ctx.lineTo(left + width - 4, mapY(y)); ctx.stroke(); }
     const target = currentTarget();
-    if (target) { ctx.fillStyle = "#f1db70"; ctx.beginPath(); ctx.arc(mapX(target.x), mapY(target.y), 2.5, 0, Math.PI * 2); ctx.fill(); }
+    if (target) {
+      const targetPosition = coordinates(target);
+      ctx.fillStyle = "#f1db70";
+      ctx.beginPath();
+      ctx.arc(mapX(targetPosition.x), mapY(targetPosition.y), 2.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
     const position = currentPosition();
     ctx.fillStyle = "#f4e9a6"; ctx.beginPath(); ctx.arc(mapX(position.x), mapY(position.y), 3, 0, Math.PI * 2); ctx.fill();
     ctx.fillStyle = "#fff"; ctx.font = "bold 7px Segoe UI"; ctx.textAlign = "left"; ctx.fillText("MAPA", left + 6, top + 12);
@@ -845,7 +860,8 @@
     }
     if (mission && mission.kind !== "race") {
       const target = mission[state.missionStage];
-      if (distance(state.player, target) > 50) {
+      const targetDistance = distance(state.player, target);
+      if (!Number.isFinite(targetDistance) || targetDistance > 50) {
         toast("Chegue mais perto do marcador para interagir.");
         return;
       }
@@ -1208,13 +1224,51 @@
 
   function clearKeys() { state.keys.clear(); }
 
+  async function toggleFullscreen() {
+    if (document.fullscreenElement === $(".game-column")) {
+      await document.exitFullscreen();
+      screen.orientation?.unlock?.();
+      return;
+    }
+    if (!document.fullscreenEnabled || typeof $(".game-column").requestFullscreen !== "function") {
+      toast("Tela cheia não está disponível neste navegador.");
+      return;
+    }
+    try {
+      await $(".game-column").requestFullscreen();
+    } catch (error) {
+      console.warn("Não foi possível ativar a tela cheia.", error);
+      toast("Não foi possível ativar a tela cheia neste navegador.");
+      return;
+    }
+    try {
+      await screen.orientation?.lock?.("landscape");
+    } catch (error) {
+      console.warn("O navegador não permitiu travar a orientação em paisagem.", error);
+      toast("Tela cheia ativada. Se precisar, vire o celular de lado.");
+    }
+  }
+
   buildCity();
   resizeCanvas();
   refreshHud();
   window.addEventListener("resize", resizeCanvas);
+  document.addEventListener("fullscreenchange", () => {
+    const isFullscreen = document.fullscreenElement === $(".game-column");
+    $("#fullscreenButton").setAttribute("aria-label", isFullscreen ? "Sair da tela cheia" : "Ativar tela cheia");
+    $("#fullscreenButton").title = isFullscreen ? "Sair da tela cheia" : "Tela cheia";
+    if (!isFullscreen) screen.orientation?.unlock?.();
+    resizeCanvas();
+  });
   window.addEventListener("keydown", keyDown);
   window.addEventListener("keyup", keyUp);
   window.addEventListener("blur", clearKeys);
+  $("#fullscreenButton").addEventListener("click", () => {
+    toggleFullscreen().catch((error) => {
+      console.error("Erro ao alternar tela cheia.", error);
+      toast("Ocorreu um erro ao alternar a tela cheia.");
+    });
+  });
   $("#startButton").addEventListener("click", beginGame);
   $("#pauseButton").addEventListener("click", togglePause);
   $("#resumeButton").addEventListener("click", togglePause);
