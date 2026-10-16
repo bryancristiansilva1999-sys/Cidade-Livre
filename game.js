@@ -1320,3 +1320,36 @@
   window.addEventListener("resize", resizeCanvas);
   document.addEventListener("fullscreenchange", () => {
     const isFullscreen = document.fullscreenElement === $(".game-column");
+    $("#fullscreenButton").setAttribute("aria-label", isFullscreen ? "Sair da tela cheia" : "Ativar tela cheia");
+    $("#fullscreenButton").title = isFullscreen ? "Sair da tela cheia" : "Tela cheia";
+    if (!isFullscreen) screen.orientation?.unlock?.();
+    resizeCanvas();
+  });
+  window.addEventListener("keydown", keyDown);
+  window.addEventListener("keyup", keyUp);
+  window.addEventListener("blur", clearKeys);
+  $("#fullscreenButton").addEventListener("click", () => {
+    toggleFullscreen().catch((error) => {
+      console.error("Erro ao alternar tela cheia.", error);
+      toast("Ocorreu um erro ao alternar a tela cheia.");
+    });
+  });
+  $("#startButton").addEventListener("click", beginGame);
+  $("#resetProgressButton").addEventListener("click", resetProgress);
+  $("#pauseButton").addEventListener("click", togglePause);
+  $("#resumeButton").addEventListener("click", togglePause);
+  $("#closeStore").addEventListener("click", closeStore);
+  $("#storePanel").addEventListener("click", (event) => { if (event.target === ui.store) closeStore(); });
+  document.querySelectorAll("[data-key]").forEach((button) => {
+    const key = button.dataset.key;
+    button.addEventListener("pointerdown", (event) => { event.preventDefault(); setKey(key, true); });
+    button.addEventListener("pointerup", () => setKey(key, false));
+    button.addEventListener("pointerleave", () => setKey(key, false));
+    button.addEventListener("pointercancel", () => setKey(key, false));
+  });
+  document.querySelectorAll("[data-tap]").forEach((button) => {
+    button.addEventListener("click", () => handleAction(button.dataset.tap));
+  });
+  window.addEventListener("beforeunload", saveProgress);
+  requestAnimationFrame(frame);
+})();
