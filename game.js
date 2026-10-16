@@ -143,6 +143,38 @@
     refreshHud();
   }
 
+  function resetProgress() {
+    if (!window.confirm("Apagar todo o progresso salvo, incluindo dinheiro, veículos, itens e recorde?")) return;
+    try {
+      localStorage.removeItem(SAVE_KEY);
+    } catch (error) {
+      console.error("O progresso salvo não pôde ser apagado.", error);
+      toast("Não foi possível apagar o progresso neste navegador.");
+      return;
+    }
+
+    state.cash = 0;
+    state.owned = new Set(["sedan"]);
+    state.vehicleIndex = 0;
+    for (const item of food) state.inventory[item.id] = 0;
+    state.missionIndex = 0;
+    state.missionStage = "pickup";
+    state.bestTime = null;
+    state.selectedFood = 0;
+    state.player = { x: 150, y: 150, angle: 0 };
+    state.car = { x: 205, y: 150, angle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 };
+    state.inCar = false;
+    state.camera = { x: 150, y: 150 };
+    state.keys.clear();
+    state.race = { active: false, countdown: 0, elapsed: 0, checkpoint: 0, route: [], opponents: [], free: false };
+    state.moneyBag.collected = false;
+    state.paused = false;
+    ui.pause.classList.add("hidden");
+    if (state.storeOpen) closeStore();
+    refreshHud();
+    toast("Progresso apagado. Você pode começar de novo!");
+  }
+
   function rng(seed) {
     let value = seed >>> 0;
     return () => {
@@ -1288,35 +1320,3 @@
   window.addEventListener("resize", resizeCanvas);
   document.addEventListener("fullscreenchange", () => {
     const isFullscreen = document.fullscreenElement === $(".game-column");
-    $("#fullscreenButton").setAttribute("aria-label", isFullscreen ? "Sair da tela cheia" : "Ativar tela cheia");
-    $("#fullscreenButton").title = isFullscreen ? "Sair da tela cheia" : "Tela cheia";
-    if (!isFullscreen) screen.orientation?.unlock?.();
-    resizeCanvas();
-  });
-  window.addEventListener("keydown", keyDown);
-  window.addEventListener("keyup", keyUp);
-  window.addEventListener("blur", clearKeys);
-  $("#fullscreenButton").addEventListener("click", () => {
-    toggleFullscreen().catch((error) => {
-      console.error("Erro ao alternar tela cheia.", error);
-      toast("Ocorreu um erro ao alternar a tela cheia.");
-    });
-  });
-  $("#startButton").addEventListener("click", beginGame);
-  $("#pauseButton").addEventListener("click", togglePause);
-  $("#resumeButton").addEventListener("click", togglePause);
-  $("#closeStore").addEventListener("click", closeStore);
-  $("#storePanel").addEventListener("click", (event) => { if (event.target === ui.store) closeStore(); });
-  document.querySelectorAll("[data-key]").forEach((button) => {
-    const key = button.dataset.key;
-    button.addEventListener("pointerdown", (event) => { event.preventDefault(); setKey(key, true); });
-    button.addEventListener("pointerup", () => setKey(key, false));
-    button.addEventListener("pointerleave", () => setKey(key, false));
-    button.addEventListener("pointercancel", () => setKey(key, false));
-  });
-  document.querySelectorAll("[data-tap]").forEach((button) => {
-    button.addEventListener("click", () => handleAction(button.dataset.tap));
-  });
-  window.addEventListener("beforeunload", saveProgress);
-  requestAnimationFrame(frame);
-})();
