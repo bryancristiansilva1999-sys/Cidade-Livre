@@ -5,6 +5,7 @@
   const ROAD_X = [150, 520, 890, 1260, 1630, 2000, 2370];
   const ROAD_Y = [150, 520, 890, 1260, 1630, 2000];
   const ROAD_WIDTH = 112;
+  const POLICE_ESCAPE_DISTANCE = (ROAD_X[1] - ROAD_X[0]) * 2;
   const SAVE_KEY = "bairroLivreWebProgress";
   const vehicles = [
     { id: "sedan", name: "Sedã", speed: 290, acceleration: 255, price: 0, color: "#e6a34a" },
@@ -77,7 +78,7 @@
     paused: false,
     storeOpen: false,
     player: { x: 150, y: 150, angle: 0 },
-    car: { x: 205, y: 150, angle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 },
+    car: { x: 205, y: 150, angle: 0, driftAngle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 },
     inCar: false,
     vehicleIndex: vehicles.findIndex((vehicle) => vehicle.id === saved.vehicle) < 0 ? 0 : vehicles.findIndex((vehicle) => vehicle.id === saved.vehicle),
     owned: new Set(Array.isArray(saved.owned) ? saved.owned : ["sedan"]),
@@ -90,6 +91,9 @@
     camera: { x: 150, y: 150 },
     keys: new Set(),
     cars: [],
+    skidMarks: [],
+    skidMarkTimer: 0,
+    drifting: false,
     pedestrians: [],
     buildings: [],
     parks: [],
@@ -104,6 +108,22 @@
     hudTimer: 0,
     engineOscillator: null,
     engineGain: null,
+    policeOscillator: null,
+    policeGain: null,
+    police: {
+      active: false,
+      collisions: 0,
+      touches: 0,
+      contact: false,
+      touchCooldown: 0,
+      phase: 0,
+      approachPlayer: false,
+      goalNode: { x: 150, y: 520 },
+      driftAngle: 0,
+      skidMarkTimer: 0,
+      car: { x: 150, y: 520, angle: 0, speed: 0, color: "#f2f0e8" },
+      targetNode: { x: 150, y: 520 },
+    },
     lastFrame: 0,
     width: 1,
     height: 1,
@@ -162,12 +182,23 @@
     state.bestTime = null;
     state.selectedFood = 0;
     state.player = { x: 150, y: 150, angle: 0 };
-    state.car = { x: 205, y: 150, angle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 };
+    state.car = { x: 205, y: 150, angle: 0, driftAngle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 };
     state.inCar = false;
     state.camera = { x: 150, y: 150 };
     state.keys.clear();
     state.race = { active: false, countdown: 0, elapsed: 0, checkpoint: 0, route: [], opponents: [], free: false };
     state.moneyBag.collected = false;
+    state.skidMarks = [];
+    state.skidMarkTimer = 0;
+    state.drifting = false;
+    state.police.active = false;
+    state.police.collisions = 0;
+    state.police.touches = 0;
+    state.police.contact = false;
+    state.police.touchCooldown = 0;
+    state.police.approachPlayer = false;
+    state.police.goalNode = { x: 150, y: 520 };
+    for (const car of state.cars) car.playerContact = false;
     state.paused = false;
     ui.pause.classList.add("hidden");
     if (state.storeOpen) closeStore();
@@ -280,9 +311,65 @@
       { x: 2000, y: 1100, angle: Math.PI / 2, color: "#8db0c2", speed: 90, route: state.routes[5], routeIndex: 0 },
       { x: 1630, y: 1800, angle: Math.PI, color: "#c887aa", speed: 94, route: state.routes[6], routeIndex: 0 },
     ];
+    const trafficColors = ["#d18d5e", "#7b9dbd", "#b58caa", "#bdc078", "#cc806e", "#79a99a"];
+    const trafficRandom = rng(8041);
+    const trafficSegments = [];
+    for (let row = 0; row < ROAD_Y.length; row += 1) {
+      for (let column = 0; column < ROAD_X.length - 1; column += 1) {
+        trafficSegments.push({ axis: "horizontal", row, column });
+      }
+    }
+    for (let column = 0; column < ROAD_X.length; column += 1) {
+      for (let row = 0; row < ROAD_Y.length - 1; row += 1) {
+        trafficSegments.push({ axis: "vertical", row, column });
+      }
+    }
+    for (let index = trafficSegments.length - 1; index > 0; index -= 1) {
+      const otherIndex = Math.floor(trafficRandom() * (index + 1));
+      [trafficSegments[index], trafficSegments[otherIndex]] = [trafficSegments[otherIndex], trafficSegments[index]];
+    }
+    for (const segment of trafficSegments) {
+      if (state.cars.length >= 45) break;
+      const horizontal = segment.axis === "horizontal";
+      const roadX = ROAD_X[segment.column];
+      const nextRoadX = horizontal ? ROAD_X[segment.column + 1] : roadX;
+      const roadY = ROAD_Y[segment.row];
+      const nextRoadY = horizontal ? roadY : ROAD_Y[segment.row + 1];
+      const options = [];
+      for (const fraction of [.28, .72]) {
+        for (const lane of [-24, 24]) {
+          options.push(horizontal
+            ? { x: roadX + (nextRoadX - roadX) * fraction, y: roadY + lane }
+            : { x: roadX + lane, y: roadY + (nextRoadY - roadY) * fraction });
+        }
+      }
+      const position = options
+        .map((candidate) => ({
+          ...candidate,
+          clearance: Math.min(...state.cars.map((car) => distance(candidate, car))),
+        }))
+        .sort((first, second) => second.clearance - first.clearance)[0];
+      if (!position || position.clearance < 65) continue;
+      const forward = trafficRandom() >= .5;
+      const target = horizontal
+        ? { x: forward ? nextRoadX : roadX, y: roadY }
+        : { x: roadX, y: forward ? nextRoadY : roadY };
+      state.cars.push({
+        x: position.x,
+        y: position.y,
+        angle: horizontal ? (forward ? 0 : Math.PI) : (forward ? Math.PI / 2 : -Math.PI / 2),
+        color: trafficColors[Math.floor(trafficRandom() * trafficColors.length)],
+        speed: 82 + trafficRandom() * 22,
+        route: [],
+        routeIndex: 0,
+        trafficTarget: target,
+        raceEligible: false,
+      });
+    }
     for (const car of state.cars) {
       car.regularRoute = car.route;
       car.regularRouteIndex = car.routeIndex;
+      car.trafficTarget ||= car.route[car.routeIndex];
     }
     buildSidewalkGraph();
     state.pedestrians = Array.from({ length: 14 }, (_, index) => {
@@ -396,6 +483,7 @@
     ctx.fillStyle = "#698265";
     ctx.fillRect(0, 0, state.width, state.height);
     drawRoads();
+    drawSkidMarks();
     drawParks();
     drawBuildings();
     drawRoadProps();
@@ -406,6 +494,13 @@
     drawCars();
     drawPlayer();
     drawMinimap();
+    if (state.police.active) {
+      ctx.fillStyle = "rgb(27 28 35 / 88%)";
+      roundRect(ctx, 15, 14, 204, 28, 7, true);
+      ctx.fillStyle = "#ff8585";
+      ctx.font = "700 11px Segoe UI, sans-serif";
+      ctx.fillText(`POLÍCIA · CONTATOS ${state.police.touches}/5`, 25, 32);
+    }
     if (state.inCar) {
       const position = point(state.car.x, state.car.y);
       ctx.fillStyle = "rgb(14 22 23 / 75%)";
@@ -454,6 +549,18 @@
       ctx.stroke();
       ctx.setLineDash([]);
     }
+  }
+
+  function drawSkidMarks() {
+    for (const mark of state.skidMarks) {
+      const p = point(mark.x, mark.y);
+      ctx.globalAlpha = .4 * (1 - mark.age / 4);
+      ctx.fillStyle = "#202425";
+      ctx.beginPath();
+      ctx.arc(p.x, p.y, 2.5 * state.zoom, 0, Math.PI * 2);
+      ctx.fill();
+    }
+    ctx.globalAlpha = 1;
   }
 
   function drawParks() {
@@ -640,6 +747,29 @@
     for (const car of state.cars) drawCar(car);
     state.car.color = vehicles[state.vehicleIndex].color;
     drawCar(state.car, state.inCar);
+    if (state.police.active) drawPoliceCar();
+  }
+
+  function drawPoliceCar() {
+    const policeCar = state.police.car;
+    policeCar.color = "#f2f0e8";
+    drawCar(policeCar);
+    const p = point(policeCar.x, policeCar.y);
+    ctx.save();
+    ctx.translate(p.x, p.y);
+    ctx.rotate(policeCar.angle);
+    ctx.scale(state.zoom, state.zoom);
+    ctx.fillStyle = "#263747";
+    ctx.fillRect(-17, -3, 9, 6);
+    const flashing = Math.floor(state.police.phase * 4) % 2 === 0;
+    ctx.shadowBlur = 12;
+    ctx.fillStyle = flashing ? "#fa3f54" : "#18343d";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.fillRect(-3, -9, 7, 7);
+    ctx.fillStyle = flashing ? "#17465a" : "#55c9ff";
+    ctx.shadowColor = ctx.fillStyle;
+    ctx.fillRect(-3, 2, 7, 7);
+    ctx.restore();
   }
 
   function drawPlayer() {
@@ -676,6 +806,12 @@
     }
     const position = currentPosition();
     ctx.fillStyle = "#f4e9a6"; ctx.beginPath(); ctx.arc(mapX(position.x), mapY(position.y), 3, 0, Math.PI * 2); ctx.fill();
+    if (state.police.active) {
+      ctx.fillStyle = Math.floor(state.police.phase * 4) % 2 === 0 ? "#ff5264" : "#5ad2ff";
+      ctx.beginPath();
+      ctx.arc(mapX(state.police.car.x), mapY(state.police.car.y), 3.5, 0, Math.PI * 2);
+      ctx.fill();
+    }
     ctx.fillStyle = "#fff"; ctx.font = "bold 7px Segoe UI"; ctx.textAlign = "left"; ctx.fillText("MAPA", left + 6, top + 12);
   }
 
@@ -694,6 +830,7 @@
 
   function update(dt) {
     updateEngineAudio();
+    updatePoliceSiren(dt);
     if (!state.started || state.paused || state.storeOpen) return;
     state.hudTimer += dt;
     if (state.hudTimer >= .15) {
@@ -704,6 +841,8 @@
     moveTraffic(dt);
     if (state.inCar) moveCar(dt);
     else movePlayer(dt);
+    updatePolice(dt);
+    updateSkidMarks(dt);
     if (!state.moneyBag.collected && distance(currentPosition(), state.moneyBag) < 23) {
       state.moneyBag.collected = true;
       state.cash += 50;
@@ -732,6 +871,36 @@
     state.player.angle = Math.atan2(dy, dx);
   }
 
+  function moveCarPosition(car, dx, dy) {
+    const hitX = isSolid(car.x + dx, car.y, 22);
+    if (!hitX) car.x += dx;
+    const hitY = isSolid(car.x, car.y + dy, 22);
+    if (!hitY) car.y += dy;
+    return { hitX, hitY };
+  }
+
+  function updateSkidMarks(dt) {
+    for (const mark of state.skidMarks) mark.age += dt;
+    state.skidMarks = state.skidMarks.filter((mark) => mark.age < 4);
+    if (!state.drifting || !state.inCar) {
+      state.skidMarkTimer = 0;
+      return;
+    }
+    state.skidMarkTimer += dt;
+    if (state.skidMarkTimer < .07) return;
+    state.skidMarkTimer = 0;
+    const rearX = state.car.x - Math.cos(state.car.angle) * 14;
+    const rearY = state.car.y - Math.sin(state.car.angle) * 14;
+    for (const side of [-1, 1]) {
+      state.skidMarks.push({
+        x: rearX - Math.sin(state.car.angle) * side * 7,
+        y: rearY + Math.cos(state.car.angle) * side * 7,
+        age: 0,
+      });
+    }
+    if (state.skidMarks.length > 240) state.skidMarks.splice(0, 2);
+  }
+
   function moveCar(dt) {
     if (state.race.countdown > 0) {
       state.car.speed = 0;
@@ -743,37 +912,49 @@
       return;
     }
     const vehicle = vehicles[state.vehicleIndex];
-    const acceleration = (state.keys.has("w") ? 1 : 0) - (state.keys.has("s") ? 1 : 0);
     const turn = (state.keys.has("d") ? 1 : 0) - (state.keys.has("a") ? 1 : 0);
     const car = state.car;
+    const cornerSpeed = vehicle.speed * .58;
+    const drifting = state.keys.has("space") && Math.abs(car.speed) >= 115 && turn !== 0;
+    if (drifting && !state.drifting) toast("Drift! Solte o espaço para recuperar a direção.");
+    state.drifting = drifting;
+    const driftTarget = drifting ? turn * .62 : 0;
+    car.driftAngle += (driftTarget - car.driftAngle) * Math.min(1, dt * (drifting ? 4.5 : 2));
+    let acceleration = (state.keys.has("w") ? 1 : 0) - (state.keys.has("s") ? 1 : 0);
+    if (!drifting && turn && Math.abs(car.speed) > cornerSpeed && Math.sign(acceleration) === Math.sign(car.speed)) {
+      acceleration = 0;
+    }
     car.crashTimer = Math.max(0, car.crashTimer - dt);
     car.crashCooldown = Math.max(0, car.crashCooldown - dt);
     car.crashSpin *= Math.exp(-dt * 3.2);
-    const steeringControl = car.crashTimer > 0 ? .28 : 1;
+    const steeringControl = car.crashTimer > 0 ? .28 : drifting ? 1.4 : 1;
     car.angle += turn * .95 * steeringControl * Math.min(1, Math.abs(car.speed) / 85) * (car.speed >= 0 ? 1 : -1) * dt;
     car.angle += car.crashSpin * dt;
     if (state.keys.has("shift")) state.car.speed *= Math.pow(.2, dt);
     else state.car.speed = clamp(state.car.speed + acceleration * vehicle.acceleration * dt, -vehicle.speed * .45, vehicle.speed);
+    if (!drifting && turn && Math.abs(car.speed) > cornerSpeed) {
+      car.speed = Math.sign(car.speed) * Math.max(cornerSpeed, Math.abs(car.speed) - vehicle.acceleration * dt);
+    }
+    if (drifting) car.speed *= Math.pow(.992, dt * 30);
     if (!acceleration || state.keys.has("shift")) state.car.speed *= Math.pow(.97, dt * 30);
     if (Math.abs(state.car.speed) < 3) state.car.speed = 0;
-    const dx = Math.cos(state.car.angle) * state.car.speed * dt;
-    const dy = Math.sin(state.car.angle) * state.car.speed * dt;
-    const hitX = isSolid(car.x + dx, car.y, 17);
-    const resolvedX = hitX ? car.x : car.x + dx;
-    const hitY = isSolid(resolvedX, car.y + dy, 17);
+    const movementAngle = car.angle - car.driftAngle;
+    const dx = Math.cos(movementAngle) * state.car.speed * dt;
+    const dy = Math.sin(movementAngle) * state.car.speed * dt;
+    const { hitX, hitY } = moveCarPosition(car, dx, dy);
     const impactSpeed = Math.abs(car.speed);
-    if (!hitX) car.x = resolvedX;
-    if (!hitY) car.y += dy;
     if (hitX || hitY) {
       const direction = car.speed < 0 ? -1 : 1;
-      let velocityX = Math.cos(car.angle) * car.speed;
-      let velocityY = Math.sin(car.angle) * car.speed;
+      let velocityX = Math.cos(movementAngle) * car.speed;
+      let velocityY = Math.sin(movementAngle) * car.speed;
       if (hitX) velocityX *= -.28;
       else velocityX *= .78;
       if (hitY) velocityY *= -.28;
       else velocityY *= .78;
       car.speed = Math.hypot(velocityX, velocityY) * direction;
       car.angle = Math.atan2(velocityY * direction, velocityX * direction);
+      car.driftAngle = 0;
+      state.drifting = false;
       if (impactSpeed > 45) {
         car.crashTimer = .85;
         if (hitX && hitY) car.crashSpin = (Math.sign(velocityX) || 1) * 1.7;
@@ -797,13 +978,25 @@
         break;
       }
     }
-    for (const car of state.cars) {
-      if (distance(state.car, car) < 29 && state.car.speed !== 0) {
-        state.car.speed *= .35;
-        toast("Você encostou em outro carro. Vá com calma!");
-        beep(110, .12);
-        break;
+    for (const other of state.cars) {
+      const separation = distance(state.car, other);
+      if (separation > 42) {
+        other.playerContact = false;
+        continue;
       }
+      if (separation >= 29 || state.car.speed === 0 || other.playerContact) continue;
+      other.playerContact = true;
+      const impactSpeed = Math.abs(state.car.speed);
+      state.car.speed *= .35;
+      if (!state.race.active && !other.raceOpponent && !state.police.active && impactSpeed > 35) {
+        state.police.collisions += 1;
+        if (state.police.collisions >= 2) startPoliceChase();
+        else toast("Batida no trânsito! Mais uma e a polícia vem atrás.");
+      } else {
+        toast("Você encostou em outro carro. Vá com calma!");
+      }
+      beep(110, .12);
+      break;
     }
   }
 
@@ -813,11 +1006,26 @@
         moveOpponent(car, dt);
         continue;
       }
-      const target = car.route[car.routeIndex];
+      const target = car.trafficTarget;
       const dx = target.x - car.x;
       const dy = target.y - car.y;
       if (Math.hypot(dx, dy) < 22) {
-        car.routeIndex = (car.routeIndex + 1) % car.route.length;
+        const xIndex = ROAD_X.indexOf(target.x);
+        const yIndex = ROAD_Y.indexOf(target.y);
+        const candidates = [];
+        if (xIndex > 0) candidates.push({ x: ROAD_X[xIndex - 1], y: target.y });
+        if (xIndex < ROAD_X.length - 1) candidates.push({ x: ROAD_X[xIndex + 1], y: target.y });
+        if (yIndex > 0) candidates.push({ x: target.x, y: ROAD_Y[yIndex - 1] });
+        if (yIndex < ROAD_Y.length - 1) candidates.push({ x: target.x, y: ROAD_Y[yIndex + 1] });
+        const forwardX = Math.cos(car.angle);
+        const forwardY = Math.sin(car.angle);
+        const options = candidates.filter((node) => {
+          const directionX = node.x - target.x;
+          const directionY = node.y - target.y;
+          return directionX * forwardX + directionY * forwardY >= 0;
+        });
+        const nextNode = options[Math.floor(Math.random() * options.length)] || candidates[0];
+        car.trafficTarget = nextNode;
         continue;
       }
       const desired = Math.atan2(dy, dx);
@@ -825,9 +1033,164 @@
       const blocked = state.cars.some((other) => other !== car && distance(car, other) < 43);
       const playerBlocked = state.inCar && distance(car, state.car) < 48;
       const speed = blocked || playerBlocked ? 28 : car.speed;
-      car.x += Math.cos(car.angle) * speed * dt;
-      car.y += Math.sin(car.angle) * speed * dt;
+      const { hitX, hitY } = moveCarPosition(car, Math.cos(car.angle) * speed * dt, Math.sin(car.angle) * speed * dt);
+      if (hitX || hitY) car.trafficTarget = target;
     }
+  }
+
+  function nearestRoadNode(position) {
+    let nearest = { x: ROAD_X[0], y: ROAD_Y[0] };
+    let nearestDistance = Infinity;
+    for (const x of ROAD_X) {
+      for (const y of ROAD_Y) {
+        const candidateDistance = Math.hypot(position.x - x, position.y - y);
+        if (candidateDistance < nearestDistance) {
+          nearest = { x, y };
+          nearestDistance = candidateDistance;
+        }
+      }
+    }
+    return nearest;
+  }
+
+  function startPoliceChase() {
+    const playerPosition = currentPosition();
+    const roadNodes = ROAD_X.flatMap((x) => ROAD_Y.map((y) => ({ x, y })));
+    const spawnCandidates = roadNodes
+      .map((node) => ({ node, distance: distance(node, playerPosition) }))
+      .filter((candidate) => candidate.distance >= 150)
+      .sort((first, second) => first.distance - second.distance);
+    const spawn = (spawnCandidates[0] || { node: roadNodes[roadNodes.length - 1] }).node;
+
+    state.police.active = true;
+    state.police.touches = 0;
+    state.police.contact = false;
+    state.police.touchCooldown = 0;
+    state.police.phase = 0;
+    state.police.approachPlayer = false;
+    state.police.goalNode = nearestRoadNode(playerPosition);
+    state.police.driftAngle = 0;
+    state.police.skidMarkTimer = 0;
+    state.police.car = { ...spawn, angle: Math.atan2(playerPosition.y - spawn.y, playerPosition.x - spawn.x), speed: 0, color: "#f2f0e8" };
+    state.police.targetNode = spawn;
+    startPoliceSiren();
+    toast("Você bateu em dois carros! A polícia está atrás de você!");
+    beep(820, .18);
+  }
+
+  function updatePolice(dt) {
+    if (!state.police.active) return;
+    const policeCar = state.police.car;
+    const playerPosition = currentPosition();
+    state.police.touchCooldown = Math.max(0, state.police.touchCooldown - dt);
+    const targetNode = nearestRoadNode(playerPosition);
+    if (state.police.approachPlayer
+      && (targetNode.x !== state.police.goalNode.x || targetNode.y !== state.police.goalNode.y)
+      && distance(policeCar, playerPosition) > 125) {
+      state.police.approachPlayer = false;
+      state.police.targetNode = nearestRoadNode(policeCar);
+      state.police.goalNode = targetNode;
+    }
+    const atTarget = !state.police.approachPlayer && distance(policeCar, state.police.targetNode) < 24;
+
+    if (atTarget) {
+      const targetXIndex = ROAD_X.indexOf(targetNode.x);
+      const targetYIndex = ROAD_Y.indexOf(targetNode.y);
+      const currentXIndex = ROAD_X.indexOf(state.police.targetNode.x);
+      const currentYIndex = ROAD_Y.indexOf(state.police.targetNode.y);
+      if (currentXIndex === targetXIndex && currentYIndex === targetYIndex) {
+        const onRoad = Math.abs(playerPosition.x - targetNode.x) < ROAD_WIDTH / 2
+          || Math.abs(playerPosition.y - targetNode.y) < ROAD_WIDTH / 2;
+        if (onRoad || distance(policeCar, playerPosition) < 70) {
+          state.police.approachPlayer = true;
+          state.police.goalNode = targetNode;
+        }
+      } else {
+        const nextNodes = [];
+        if (currentXIndex < targetXIndex) nextNodes.push({ x: ROAD_X[currentXIndex + 1], y: state.police.targetNode.y });
+        if (currentXIndex > targetXIndex) nextNodes.push({ x: ROAD_X[currentXIndex - 1], y: state.police.targetNode.y });
+        if (currentYIndex < targetYIndex) nextNodes.push({ x: state.police.targetNode.x, y: ROAD_Y[currentYIndex + 1] });
+        if (currentYIndex > targetYIndex) nextNodes.push({ x: state.police.targetNode.x, y: ROAD_Y[currentYIndex - 1] });
+        const next = nextNodes[Math.floor(Math.random() * nextNodes.length)];
+        if (next) state.police.targetNode = next;
+      }
+    }
+
+    const destination = state.police.approachPlayer ? playerPosition : state.police.targetNode;
+    const dx = destination.x - policeCar.x;
+    const dy = destination.y - policeCar.y;
+    if (Math.hypot(dx, dy) > 5) {
+      const desired = Math.atan2(dy, dx);
+      const turnError = angleDifference(desired, policeCar.angle);
+      policeCar.angle += clamp(turnError, -2.5 * dt, 2.5 * dt);
+      const walkingX = Number(state.keys.has("d")) - Number(state.keys.has("a"));
+      const walkingY = Number(state.keys.has("s")) - Number(state.keys.has("w"));
+      const playerSpeed = state.inCar
+        ? Math.abs(state.car.speed)
+        : Math.hypot(walkingX, walkingY) > 0 ? 180 : 0;
+      const catchUpSpeed = 18 + clamp((distance(policeCar, playerPosition) - 55) * .45, 0, 82);
+      const targetSpeed = clamp(playerSpeed + catchUpSpeed, 0, 360);
+      const acceleration = targetSpeed > policeCar.speed ? 420 : 600;
+      policeCar.speed += clamp(targetSpeed - policeCar.speed, -acceleration * dt, acceleration * dt);
+      const drifting = Math.abs(turnError) > .32 && policeCar.speed > 150;
+      const driftTarget = drifting ? clamp(turnError * .65, -.55, .55) : 0;
+      state.police.driftAngle += (driftTarget - state.police.driftAngle) * Math.min(1, dt * (drifting ? 5 : 2.5));
+      const movementAngle = policeCar.angle - state.police.driftAngle;
+      moveCarPosition(policeCar, Math.cos(movementAngle) * policeCar.speed * dt, Math.sin(movementAngle) * policeCar.speed * dt);
+      if (drifting) {
+        state.police.skidMarkTimer += dt;
+        if (state.police.skidMarkTimer >= .09) {
+          state.police.skidMarkTimer = 0;
+          const rearX = policeCar.x - Math.cos(policeCar.angle) * 14;
+          const rearY = policeCar.y - Math.sin(policeCar.angle) * 14;
+          for (const side of [-1, 1]) {
+            state.skidMarks.push({
+              x: rearX - Math.sin(policeCar.angle) * side * 7,
+              y: rearY + Math.cos(policeCar.angle) * side * 7,
+              age: 0,
+            });
+          }
+          if (state.skidMarks.length > 240) state.skidMarks.splice(0, 2);
+        }
+      } else {
+        state.police.skidMarkTimer = 0;
+      }
+    }
+
+    const separation = distance(policeCar, playerPosition);
+    if (separation >= POLICE_ESCAPE_DISTANCE) {
+      escapePolice();
+      return;
+    }
+    if (separation > 42) state.police.contact = false;
+    if (separation < 32 && !state.police.contact && state.police.touchCooldown === 0) {
+      state.police.contact = true;
+      state.police.touchCooldown = .85;
+      state.police.touches += 1;
+      if (state.inCar) {
+        state.car.speed *= .2;
+        state.car.stop = .45;
+      }
+      if (state.police.touches > 4) {
+        arrestPlayer();
+        return;
+      }
+      toast(`A polícia encostou em você! ${state.police.touches}/5.`);
+      beep(240, .16);
+    }
+  }
+
+  function escapePolice() {
+    state.police.active = false;
+    state.police.collisions = 0;
+    state.police.touches = 0;
+    state.police.contact = false;
+    state.police.touchCooldown = 0;
+    state.police.approachPlayer = false;
+    state.police.car.speed = 0;
+    state.police.driftAngle = 0;
+    toast("Você despistou a polícia! A perseguição terminou.");
+    beep(920, .2);
   }
 
   function moveOpponent(car, dt) {
@@ -846,8 +1209,7 @@
     const desired = Math.atan2(dy, dx);
     car.angle += clamp(angleDifference(desired, car.angle), -.95 * dt, .95 * dt);
     const speed = car.raceSpeed;
-    car.x += Math.cos(car.angle) * speed * dt;
-    car.y += Math.sin(car.angle) * speed * dt;
+    moveCarPosition(car, Math.cos(car.angle) * speed * dt, Math.sin(car.angle) * speed * dt);
   }
 
   function movePedestrians(dt) {
@@ -961,7 +1323,7 @@
     const start = course[0];
     const next = course[1];
     const angle = Math.atan2(next.y - start.y, next.x - start.x);
-    state.cars.forEach((car, index) => {
+    state.cars.filter((car) => car.raceEligible !== false).forEach((car, index) => {
       car.regularRoute ||= car.route;
       car.regularRouteIndex ??= car.routeIndex;
       const lane = index % 2 === 0 ? -24 : 24;
@@ -1007,6 +1369,8 @@
     state.race.active = false;
     state.race.countdown = 0;
     for (const car of state.race.opponents) {
+      const nextTrafficTarget = state.race.route[car.raceIndex];
+      if (nextTrafficTarget) car.trafficTarget = nextTrafficTarget;
       car.raceOpponent = false;
       car.route = car.regularRoute;
       car.routeIndex = car.regularRouteIndex;
@@ -1108,6 +1472,7 @@
     else if (action === "pause") togglePause();
     else if (action === "change") changeVehicle();
     else if (action === "buy") buyVehicle();
+    else if (action === "restart") restartPosition();
   }
 
   function togglePause() {
@@ -1202,6 +1567,32 @@
     state.engineGain.gain.setTargetAtTime(volume, audioContext.currentTime, .12);
   }
 
+  function startPoliceSiren() {
+    if (state.policeOscillator || !ensureAudioContext()) return;
+    try {
+      const oscillator = audioContext.createOscillator();
+      const gain = audioContext.createGain();
+      oscillator.type = "sine";
+      oscillator.frequency.value = 720;
+      gain.gain.value = 0;
+      oscillator.connect(gain).connect(audioContext.destination);
+      oscillator.start();
+      state.policeOscillator = oscillator;
+      state.policeGain = gain;
+    } catch (error) {
+      console.warn("A sirene não pôde ser iniciada neste navegador.", error);
+    }
+  }
+
+  function updatePoliceSiren(dt) {
+    if (!state.policeOscillator) return;
+    if (state.police.active) state.police.phase += dt * 3.8;
+    const frequency = 720 + Math.sin(state.police.phase) * 300;
+    const audible = state.police.active && state.started && !state.paused && !state.storeOpen;
+    if (state.police.active) state.policeOscillator.frequency.setTargetAtTime(frequency, audioContext.currentTime, .07);
+    state.policeGain.gain.setTargetAtTime(audible ? .035 : 0, audioContext.currentTime, .1);
+  }
+
   function beep(frequency, duration) {
     try {
       if (!ensureAudioContext()) return;
@@ -1252,6 +1643,40 @@
     beep(440, .12);
   }
 
+  function restartPosition() {
+    if (!state.started) return;
+    if (state.race.active || state.race.countdown > 0) finishRace(false);
+    if (state.storeOpen) closeStore();
+    state.player = { x: 150, y: 150, angle: 0 };
+    state.car = { x: 205, y: 150, angle: 0, driftAngle: 0, speed: 0, stop: 0, crashTimer: 0, crashSpin: 0, crashCooldown: 0 };
+    state.inCar = false;
+    state.camera = { x: 150, y: 150 };
+    state.keys.clear();
+    state.skidMarks = [];
+    state.skidMarkTimer = 0;
+    state.drifting = false;
+    for (const car of state.cars) car.playerContact = false;
+    state.paused = false;
+    ui.pause.classList.add("hidden");
+    refreshHud();
+    toast("Posição reiniciada. Dinheiro e missões foram mantidos.");
+  }
+
+  function arrestPlayer() {
+    state.police.active = false;
+    state.police.collisions = 0;
+    state.police.touches = 0;
+    state.police.contact = false;
+    state.police.touchCooldown = 0;
+    state.police.approachPlayer = false;
+    state.police.goalNode = nearestRoadNode(state.player);
+    state.cash = Math.max(0, state.cash - 30);
+    restartPosition();
+    saveProgress();
+    toast("A polícia te pegou! Foram levados até $30. Você voltou ao início.");
+    beep(180, .35);
+  }
+
   function setKey(key, pressed) {
     const normalized = key.toLowerCase();
     if (pressed) state.keys.add(normalized);
@@ -1266,12 +1691,17 @@
       else togglePause();
       return;
     }
+    if (key === "r" && !event.repeat) {
+      restartPosition();
+      return;
+    }
     if (key === "e" && !event.repeat) handleAction("interact");
     if (key === "f" && !event.repeat) eatFood();
     if (key === "g" && !event.repeat) changeVehicle();
     if (key === "b" && !event.repeat) buyVehicle();
     if (/^[1-3]$/.test(key)) { state.selectedFood = Number(key) - 1; refreshHud(); }
     if (key === "shift") state.keys.add("shift");
+    if (key === " ") state.keys.add("space");
     if (key === "w" || key === "arrowup") state.keys.add("w");
     if (key === "a" || key === "arrowleft") state.keys.add("a");
     if (key === "s" || key === "arrowdown") state.keys.add("s");
@@ -1281,6 +1711,7 @@
   function keyUp(event) {
     const key = event.key.toLowerCase();
     if (key === "shift") state.keys.delete("shift");
+    if (key === " ") state.keys.delete("space");
     if (key === "w" || key === "arrowup") state.keys.delete("w");
     if (key === "a" || key === "arrowleft") state.keys.delete("a");
     if (key === "s" || key === "arrowdown") state.keys.delete("s");
