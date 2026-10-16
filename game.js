@@ -91,6 +91,8 @@
     camera: { x: 150, y: 150 },
     keys: new Set(),
     cars: [],
+    trafficLights: [],
+    trafficTime: 0,
     skidMarks: [],
     skidMarkTimer: 0,
     drifting: false,
@@ -255,6 +257,11 @@
 
   function buildCity() {
     const random = rng(22);
+    state.trafficLights = ROAD_X.flatMap((x) => ROAD_Y.map((y, index) => ({
+      x, y,
+      offset: ((ROAD_X.indexOf(x) * 3 + index * 5) % 7),
+    })));
+    state.trafficTime = 0;
     for (let column = 0; column < ROAD_X.length - 1; column += 1) {
       for (let row = 0; row < ROAD_Y.length - 1; row += 1) {
         const left = ROAD_X[column] + ROAD_WIDTH / 2 + 17;
@@ -487,6 +494,7 @@
     drawParks();
     drawBuildings();
     drawRoadProps();
+    drawTrafficLights();
     drawMissionMarker();
     drawRaceMarkers();
     drawMoneyBag();
@@ -663,6 +671,41 @@
           ctx.beginPath(); ctx.arc(p.x, p.y, 4 * state.zoom, 0, Math.PI * 2); ctx.fill();
         }
       }
+    }
+  }
+
+  function drawTrafficLights() {
+    for (const light of state.trafficLights) {
+      const cycle = (state.trafficTime + light.offset) % 14;
+      const horizontalGreen = cycle < 6;
+      const horizontalYellow = cycle >= 6 && cycle < 7;
+      const verticalGreen = cycle >= 7 && cycle < 13;
+      const verticalYellow = cycle >= 13;
+      const p = point(light.x, light.y);
+      const r = Math.max(1.5, 3.1 * state.zoom);
+
+      // Dois pequenos semáforos por cruzamento: um para cada sentido da via.
+      ctx.save();
+      ctx.translate(p.x, p.y);
+      ctx.fillStyle = "#202728";
+      ctx.strokeStyle = "#111718";
+      ctx.lineWidth = Math.max(1, state.zoom);
+      for (const [dx, dy, axis] of [
+        [-43, -43, "horizontal"], [43, 43, "horizontal"],
+        [43, -43, "vertical"], [-43, 43, "vertical"],
+      ]) {
+        ctx.beginPath();
+        ctx.arc(dx * state.zoom, dy * state.zoom, r + 1.5 * state.zoom, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.stroke();
+        const green = axis === "horizontal" ? horizontalGreen : verticalGreen;
+        const yellow = axis === "horizontal" ? horizontalYellow : verticalYellow;
+        ctx.fillStyle = green ? "#54e078" : yellow ? "#ffd34e" : "#f05252";
+        ctx.beginPath();
+        ctx.arc(dx * state.zoom, dy * state.zoom, r, 0, Math.PI * 2);
+        ctx.fill();
+      }
+      ctx.restore();
     }
   }
 
@@ -1001,15 +1044,22 @@
   }
 
   function moveTraffic(dt) {
+    state.trafficTime += dt;
+
     for (const car of state.cars) {
       if (car.raceOpponent) {
         moveOpponent(car, dt);
         continue;
       }
+
       const target = car.trafficTarget;
+      if (!target) continue;
       const dx = target.x - car.x;
       const dy = target.y - car.y;
-      if (Math.hypot(dx, dy) < 22) {
+      const targetDistance = Math.hypot(dx, dy);
+
+      // Ao chegar à cruzamento, escolhe uma saída possível sem fazer marcha a ré.
+      if (targetDistance < 22) {
         const xIndex = ROAD_X.indexOf(target.x);
         const yIndex = ROAD_Y.indexOf(target.y);
         const candidates = [];
@@ -1022,19 +1072,76 @@
         const options = candidates.filter((node) => {
           const directionX = node.x - target.x;
           const directionY = node.y - target.y;
-          return directionX * forwardX + directionY * forwardY >= 0;
+          return directionX * forwardX + directionY * forwardY >= -0.1;
         });
-        const nextNode = options[Math.floor(Math.random() * options.length)] || candidates[0];
+        const choices = options.length ? options : candidates;
+        const nextNode = choices[Math.floor(Math.random() * choices.length)] || candidates[0];
         car.trafficTarget = nextNode;
         continue;
       }
+
       const desired = Math.atan2(dy, dx);
-      car.angle += clamp(angleDifference(desired, car.angle), -.9 * dt, .9 * dt);
-      const blocked = state.cars.some((other) => other !== car && distance(car, other) < 43);
-      const playerBlocked = state.inCar && distance(car, state.car) < 48;
-      const speed = blocked || playerBlocked ? 28 : car.speed;
-      const { hitX, hitY } = moveCarPosition(car, Math.cos(car.angle) * speed * dt, Math.sin(car.angle) * speed * dt);
-      if (hitX || hitY) car.trafficTarget = target;
+      car.angle += clamp(angleDifference(desired, car.angle), -1.15 * dt, 1.15 * dt);
+
+      // Percepção frontal: só reage a carros que estão na mesma faixa e à frente.
+      let obstacleDistance = Infinity;
+      for (const other of state.cars) {
+        if (other === car || other.raceOpponent) continue;
+        const ox = other.x - car.x;
+        const oy = other.y - car.y;
+        const forward = ox * Math.cos(car.angle) + oy * Math.sin(car.angle);
+        const lateral = Math.abs(-ox * Math.sin(car.angle) + oy * Math.cos(car.angle));
+        if (forward > 0 && forward < 100 && lateral < 27) {
+          obstacleDistance = Math.min(obstacleDistance, forward);
+        }
+      }
+      if (state.inCar) {
+        const ox = state.car.x - car.x;
+        const oy = state.car.y - car.y;
+        const forward = ox * Math.cos(car.angle) + oy * Math.sin(car.angle);
+        const lateral = Math.abs(-ox * Math.sin(car.angle) + oy * Math.cos(car.angle));
+        if (forward > 0 && forward < 100 && lateral < 29) obstacleDistance = Math.min(obstacleDistance, forward);
+      }
+
+      let desiredSpeed = car.speed;
+      if (obstacleDistance < 72) {
+        // Frenagem progressiva, em vez de continuar a 28 unidades/s até bater.
+        desiredSpeed = Math.min(desiredSpeed, Math.max(0, (obstacleDistance - 25) * 1.35));
+      }
+
+      // Semáforo: controla o fluxo pela direção de aproximação.
+      const xIndex = ROAD_X.indexOf(target.x);
+      const yIndex = ROAD_Y.indexOf(target.y);
+      const isIntersection = xIndex >= 0 && yIndex >= 0;
+      if (isIntersection && targetDistance < 115 && targetDistance > 25) {
+        const horizontalApproach = Math.abs(dx) >= Math.abs(dy);
+        const light = state.trafficLights.find((item) => item.x === target.x && item.y === target.y);
+        if (light) {
+          const cycle = (state.trafficTime + light.offset) % 14;
+          const green = horizontalApproach ? cycle < 6 : cycle >= 7 && cycle < 13;
+          const yellow = horizontalApproach ? cycle >= 6 && cycle < 7 : cycle >= 13;
+          // No amarelo, só segue se já estiver muito perto da linha.
+          if (!green && !(yellow && targetDistance < 48)) {
+            desiredSpeed = Math.min(desiredSpeed, Math.max(0, (targetDistance - 28) * 1.1));
+          }
+        }
+      }
+
+      // Aceleração/frenagem suaves para dar sensação de motorista, sem teleportar a velocidade.
+      const currentSpeed = Number.isFinite(car.currentSpeed) ? car.currentSpeed : car.speed;
+      const rate = desiredSpeed < currentSpeed ? 190 : 55;
+      car.currentSpeed = currentSpeed + clamp(desiredSpeed - currentSpeed, -rate * dt, rate * dt);
+
+      const moveDistance = Math.min(car.currentSpeed * dt, Math.max(0, targetDistance - 5));
+      const { hitX, hitY } = moveCarPosition(
+        car,
+        Math.cos(car.angle) * moveDistance,
+        Math.sin(car.angle) * moveDistance
+      );
+      if (hitX || hitY) {
+        car.currentSpeed = 0;
+        // Não insiste em empurrar contra edifícios; mantém o destino para tentar novamente.
+      }
     }
   }
 
