@@ -131,6 +131,7 @@ kbd {
 .dpad button:nth-child(2) { grid-column: 1; grid-row: 2; }
 .dpad button:nth-child(3) { grid-column: 2; grid-row: 2; }
 .dpad button:nth-child(4) { grid-column: 3; grid-row: 2; }
+.dpad button:nth-child(5) { grid-column: 3; grid-row: 1; padding: 0 6px; font-size: 9px; }
 .touch-actions { display: flex; flex-wrap: wrap; justify-content: flex-end; gap: 6px; max-width: 190px; }
 .touch-actions button { min-height: 40px; padding: 0 13px; }
 .side-panel { display: grid; gap: 12px; padding-top: 63px; }
